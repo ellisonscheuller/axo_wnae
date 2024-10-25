@@ -1,7 +1,7 @@
 Tutorial
 ========
 
-In this tutorial, the basic usage of the `WNAE` class is explained.
+In this tutorial, the basic usage of the WNAE class is explained.
 
 
 Data generation
@@ -108,15 +108,15 @@ WNAE definition
         "sampling": "pcd",
         "x_step": 10,
         "x_step_size": None,
-        "x_noise_std": 0.22,
-        "x_temperature": 0.063,
+        "x_noise_std": 0.2,
+        "x_temperature": 0.05,
         "x_bound": (-3, 3),
         "x_clip_grad": None,
         "x_reject_boundary": False,
         "x_mh": False,
         "z_step": 10,
         "z_step_size": 1,
-        "z_temperature": 0.063,
+        "z_temperature": 1.,
         "z_noise_std": 1,
         "z_bound": None,
         "z_clip_grad": None,
@@ -222,8 +222,8 @@ Training the model
         validation_losses.append(validation_loss)
 
 
-Plot the losses
----------------
+Plot the loss
+-------------
 
 .. code-block:: python
 
@@ -303,3 +303,60 @@ Plot the reconstruction error landscape
         plt.title('Epoch {}'.format(epoch))
 
 .. image:: figures/tutorial/reco_error_maps.png
+
+
+Plot trajectories of MCMC samples
+---------------------------------
+
+.. code-block:: python
+
+    plt.figure()
+
+    # Generate random initial points for the MCMC
+    n_points = 5
+    x = torch.rand(n_points, 1) * (x_max - x_min) + x_min
+    y = torch.rand(n_points, 1) * (y_max - y_min) + y_min
+    initial_state = torch.hstack((x, y))
+
+    # Plot the reco error landscape
+    epoch = plot_epochs[-1]
+    h = plt.hist2d(
+        reco_error_maps[-1][:, 0],
+        reco_error_maps[-1][:, 1],
+        bins=(x_array, y_array),
+        weights=np.log10(reco_error_maps[-1][:, 2]),
+    )
+    cbar = plt.colorbar(h[3])
+    cbar.set_label("Reconstruction error (log)")
+    plt.xticks(())
+    plt.yticks(())
+    plt.xlim((x_min, x_max))
+    plt.ylim((y_min, y_max))
+    plt.clim((-3, 1))
+
+    # Run the MCMC
+    mcmc_samples = model.run_mcmc(x=initial_state, all_steps=True)
+
+    # Plot MCMC samples evolution
+    for i in range(len(mcmc_samples)):
+        if i == 0:
+            label0 = {"label": "MCMC steps"}
+        else:
+            label0 = {}
+        plt.plot(mcmc_samples[i, 0, :], mcmc_samples[i, 1, :], "ko-",
+                 markersize=4, linewidth=1, **label0)
+
+    # Highlight initial and final steps
+    plt.plot(mcmc_samples[:, 0, 0], mcmc_samples[:, 1, 0], "ro",
+             markersize=4, linewidth=1, label="Initial samples")
+    plt.plot(mcmc_samples[:, 0, -1], mcmc_samples[:, 1, -1], "bo",
+             markersize=4, linewidth=1, label="Final samples")
+
+    plt.xticks(())
+    plt.yticks(())
+    plt.xlim((-2, 2))
+    plt.ylim((-3, 3))
+    plt.title('Epoch {}'.format(epoch))
+    plt.legend()
+
+.. image:: figures/tutorial/mcmc_samples_trajectories.png
