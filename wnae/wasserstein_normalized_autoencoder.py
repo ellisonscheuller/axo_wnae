@@ -239,6 +239,7 @@ class WNAE(torch.nn.Module):
     def __sample_x(self, n_sample=None, device=None, x0=None, replay=False):
         if x0 is None:
             x0 = self.__initial_sample(n_sample, device=device)
+
         mcmc_data = sample_langevin(
             x0.detach(),
             self.__energy,
@@ -538,20 +539,38 @@ class WNAE(torch.nn.Module):
 
         return self.__wnae_step(x, mcmc_replay=False, compute_emd=False)[3]
 
-    def run_mcmc(self, x, replay=False):
+    def run_mcmc(self, x=None, replay=False, all_steps=False):
         """Run MCMC and return MCMC samples.
 
         Args:
-            x (torch.Tensor): Training data.
+            x (torch.Tensor or None, optional, default=None): Initial
+                starting points for the MCMC. If None, the MCMC will be
+                initialized from the replay buffer for PCD and randomly for
+                OMI. Must be not None for CD. 
             replay (bool, optional, default=False): Whether or not to add
                 the final state of th MCMC to the replay buffer when the
-                MCMC algorithm is PCD, e.g. that the WNAE model was
-                instantiated with `sampling="pcd"`.
+                MCMC algorithm is PCD.
+            all_steps (bool, optional, default=False): Set to True to return
+                the samples for all the MCMC steps, or False to only get
+                the final MCMC samples.
         
         Returns:
             torch.Tensor: The MCMC samples, without grad.
+            If all_steps, the tensor has three index, else two index.
+            The last index is the step number. The first two are the example
+            number and the MCMC coordinates in the input feature space.
         """
 
-        d_sample = self.__sample(x, replay=replay)
-        return d_sample["sample_x"].detach().cpu()
+        if self.sampling == "cd" and x is None:
+            raise ValueError
+
+        if x is None:
+            mcmc_data = self.__sample(replay=replay)
+        else:
+            mcmc_data = self.__sample_x(x0=x, replay=replay)
+        
+        if all_steps:
+            return torch.dstack(mcmc_data["samples"])
+        else:
+            return mcmc_data["sample_x"].detach().cpu()
 
