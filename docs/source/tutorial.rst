@@ -111,18 +111,7 @@ WNAE definition
         "x_noise_std": 0.2,
         "x_temperature": 0.05,
         "x_bound": (-3, 3),
-        "x_clip_grad": None,
-        "x_reject_boundary": False,
         "x_mh": False,
-        "z_step": 10,
-        "z_step_size": 1,
-        "z_temperature": 1.,
-        "z_noise_std": 1,
-        "z_bound": None,
-        "z_clip_grad": None,
-        "z_reject_boundary": False,
-        "z_mh": False,
-        "spherical": False,
         "initial_dist": "gaussian",
         "replay": True,
         "replay_ratio": 0.95,
@@ -313,7 +302,7 @@ Plot trajectories of MCMC samples
     plt.figure()
 
     # Generate random initial points for the MCMC
-    n_points = 5
+    n_points = 4
     x = torch.rand(n_points, 1) * (x_max - x_min) + x_min
     y = torch.rand(n_points, 1) * (y_max - y_min) + y_min
     initial_state = torch.hstack((x, y))
