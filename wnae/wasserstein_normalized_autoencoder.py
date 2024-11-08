@@ -15,39 +15,51 @@ def mse(x, reco):
 class WNAE(torch.nn.Module):
     """Wasserstein Normalized Autoencoder class.
 
+    The term MCMC alone refers to the MCMC in the input feature space.
+    The arguments starting with `z_` refer to the latent space MCMC, only
+    run if `sampling='omi'`.
+
     Args:
         encoder (torch.nn.Module): Encoder network.
         decoder (torch.nn.Module): Decoder network.
         sampling (str): Sampling methods, choose from 'cd' (Contrastive
             Divergence), 'pcd' (Persistent CD), 'omi' (on-manifold
             initialization).
-        x_step (int): Number of steps in MCMC.
-        x_step_size (float or None): Step size of the MCMC. If None, will be set
-            to `x_noise_std**2 / 2`.
-        x_noise_std (float or None): Noise standard deviation in the MCMC.
+        n_steps (int): Number of steps of the MCMC.
+        step_size (float or None): Step size of the MCMC. If None, will be set
+            to `noise**2 / 2`.
+        noise (float or None): Noise standard deviation in the MCMC.
             If None, will be set to np.sqrt(`2 * step_size`).
-        x_temperature (float): Temperature of the MCMC.
-        x_bound (tuple or None): Min and max values to clip the MCMC samples.
-            If None, samples will not be clipped.
-        x_clip_grad (tuple or None): Min and max values to clip the gradient
-            norm. If None, gradient will not be clipped.
-        x_mh (bool): If True, use Metropolis-Hastings rejection in MCMC.
-        z_step (int): Same as `x_step` but for the latent MCMC.
-        z_step_size (float): Same as `x_step_size` but for the latent MCMC.
-        z_noise_std (float): Same as `x_noise_std` but for the latent MCMC.
-        z_temperature (float): Same as `x_temperature` but for the latent MCMC.
-        z_bound (tuple or None): Same as `x_bound` but for the latent MCMC.
-        z_clip_grad (tuple or None): Same as `x_clip_grad` but for the latent MCMC.
-        z_mh (bool): Same as `x_mh` but for the latent MCMC.
-        reco_error_function (callable, optional): the reconstruction error between
+        temperature (float): Temperature of the MCMC.
+        bounds (tuple or None): Min and max values of the sampling boundaries.
+            All features share the same min and max values. MCMC samples will
+            be clipped to the boundaries if getting beyond, unless
+            `reject_out_of_boundary` is True. If None, samples will not be
+            clipped or rejected.
+        reject_out_of_boundary (bool): Whether to reject MCMC samples if they
+            lie beyond the sampling boundaries.
+        clip_grad (float or None): Max value of the gradient norm. If larger
+            than this value, the gradient norm be clipped. If None, no clipping
+            will be applied.
+        mh (bool): If True, use Metropolis-Hastings rejection in MCMC.
+        z_n_steps (int): Same as `n_steps` but for the latent MCMC.
+        z_step_size (float): Same as `step_size` but for the latent MCMC.
+        z_noise (float): Same as `noise` but for the latent MCMC.
+        z_temperature (float): Same as `temperature` but for the latent MCMC.
+        z_bounds (tuple or None): Same as `bounds` but for the latent MCMC.
+        z_reject_out_of_boundary (bool): Same as `reject_out_of_boundary` but
+            for the latent MCMC.
+        z_clip_grad (float or None): Same as `clip_grad` but for the latent MCMC.
+        z_mh (bool): Same as `mh` but for the latent MCMC.
+        reco_error_function (callable): the reconstruction error between
             two tensors. Default is the mean squared error (MSE).
         spherical (bool): Project latent vectors onto the hypersphere.
         initial_dist (str): Distribution from which initial samples are
             generated. Choose from 'gaussian' or 'uniform'.
         replay (bool): Whether to use the replay buffer.
-        replay_ratio (float): For PCD, probability to keep sample for
+        replay_ratio (float): For PCD, probability to keep a sample for
             the initialization of the next chain.
-        buffer_size (int): Size of replay buffer.
+        buffer_size (int): Size of the replay buffer.
     """
 
     def __init__(
@@ -55,25 +67,25 @@ class WNAE(torch.nn.Module):
         encoder,
         decoder,
         sampling="pcd",
-        x_step=50,
-        x_step_size=10,
-        x_noise_std=0.05,
-        x_temperature=1.0,
-        x_bound=(0, 1),
-        x_clip_grad=None,
-        x_reject_boundary=False,
-        x_mh=False,
-        z_step=50,
+        n_steps=50,
+        step_size=10,
+        noise=0.05,
+        temperature=1.0,
+        bounds=(0, 1),
+        clip_grad=None,
+        reject_out_of_boundary=False,
+        mh=False,
+        z_n_steps=50,
         z_step_size=0.2,
-        z_noise_std=0.2,
+        z_noise=0.2,
         z_temperature=1.0,
-        z_bound=None,
+        z_bounds=None,
         z_clip_grad=None,
-        z_reject_boundary=False,
+        z_reject_out_of_boundary=False,
         reco_error=mse,
         z_mh=False,
         spherical=False,
-        initial_dist="gaussian",
+        initial_distribution="gaussian",
         replay=True,
         replay_ratio=0.95,
         buffer_size=10000,
@@ -81,37 +93,37 @@ class WNAE(torch.nn.Module):
         # Building on top of https://github.com/swyoon/normalized-autoencoders
         super().__init__()
 
-        x_step_size, x_noise_std = self.__mcmc_checks_and_definition(x_step_size, x_noise_std)
-        z_step_size, z_noise_std = self.__mcmc_checks_and_definition(z_step_size, z_noise_std)
+        step_size, noise = self.__mcmc_checks_and_definition(step_size, noise)
+        z_step_size, z_noise = self.__mcmc_checks_and_definition(z_step_size, z_noise)
 
         self.encoder = encoder
         self.decoder = decoder
         self.sampling = sampling
         
-        self.x_step = x_step
-        self.x_step_size = x_step_size
-        self.x_noise_std = x_noise_std
-        self.x_temperature = x_temperature
-        self.x_bound = x_bound
-        self.x_clip_grad = x_clip_grad
-        self.x_mh = x_mh
-        self.x_reject_boundary = x_reject_boundary
+        self.n_steps = n_steps
+        self.step_size = step_size
+        self.noise = noise
+        self.temperature = temperature
+        self.bounds = bounds
+        self.clip_grad = clip_grad
+        self.mh = mh
+        self.reject_out_of_boundary = reject_out_of_boundary
         self.x_shape = None
 
-        self.z_step = z_step
+        self.z_n_steps = z_n_steps
         self.z_step_size = z_step_size
-        self.z_noise_std = z_noise_std
+        self.z_noise = z_noise
         self.z_temperature = z_temperature
-        self.z_bound = z_bound
+        self.z_bounds = z_bounds
         self.z_clip_grad = z_clip_grad
         self.z_mh = z_mh
-        self.z_reject_boundary = z_reject_boundary
+        self.z_reject_out_of_boundary = z_reject_out_of_boundary
         self.z_shape = None
 
         self.error = reco_error
 
         self.spherical = spherical
-        self.initial_dist = initial_dist
+        self.initial_distribution = initial_distribution
         self.replay = replay
         self.replay_ratio = replay_ratio
         self.buffer_size = buffer_size
@@ -175,6 +187,7 @@ class WNAE(torch.nn.Module):
             z = z / z.view(len(z), -1).norm(dim=-1)[:, None, None, None]
         else:
             z = z / z.view(len(z), -1).norm(dim=1, keepdim=True)
+        return z
 
     def __encode(self, x):
         if self.spherical:
@@ -221,16 +234,16 @@ class WNAE(torch.nn.Module):
             l_sample.append(self.buffer.get(n_replay))
 
         shape = (n_samples - n_replay,) + self.__sample_shape
-        if self.initial_dist == "gaussian":
+        if self.initial_distribution == "gaussian":
             x0_new = torch.randn(shape, dtype=torch.float)
-        elif self.initial_dist == "uniform":
+        elif self.initial_distribution == "uniform":
             x0_new = torch.rand(shape, dtype=torch.float)
-            if self.sampling != "omi" and self.x_bound is not None:
-                x0_new = x0_new * (self.x_bound[1] - self.x_bound[0]) + self.x_bound[0]
-            elif self.sampling == "omi" and self.z_bound is not None:
-                x0_new = x0_new * (self.z_bound[1] - self.z_bound[0]) + self.z_bound[0]
+            if self.sampling != "omi" and self.bounds is not None:
+                x0_new = x0_new * (self.bounds[1] - self.bounds[0]) + self.bounds[0]
+            elif self.sampling == "omi" and self.z_bounds is not None:
+                x0_new = x0_new * (self.z_bounds[1] - self.z_bounds[0]) + self.z_bounds[0]
         else:
-            log.critical(f"Invalid initial distribution {self.initial_dist}")
+            log.critical(f"Invalid initial distribution {self.initial_distribution}")
             exit(1)
 
         l_sample.append(x0_new)
@@ -243,15 +256,15 @@ class WNAE(torch.nn.Module):
         mcmc_data = sample_langevin(
             x0.detach(),
             self.__energy,
-            n_steps=self.x_step,
-            step_size=self.x_step_size,
-            noise_scale=self.x_noise_std,
-            temperature=self.x_temperature,
-            clip=self.x_bound,
-            clip_grad=self.x_clip_grad,
+            n_steps=self.n_steps,
+            step_size=self.step_size,
+            noise_scale=self.noise,
+            temperature=self.temperature,
+            clip=self.bounds,
+            clip_grad=self.clip_grad,
             spherical=False,
-            mh=self.x_mh,
-            reject_boundary=self.x_reject_boundary,
+            mh=self.mh,
+            reject_out_of_boundary=self.reject_out_of_boundary,
         )
 
         mcmc_data["sample_x"] = mcmc_data.pop("sample")
@@ -268,14 +281,14 @@ class WNAE(torch.nn.Module):
             z0,
             energy,
             step_size=self.z_step_size,
-            n_steps=self.z_step,
-            noise_scale=self.z_noise_std,
-            temperature=self.temperature,
-            clip=self.z_bound,
-            clip_grad=self.z_clip_langevin_grad,
+            n_steps=self.z_n_steps,
+            noise_scale=self.z_noise,
+            temperature=self.z_temperature,
+            clip=self.z_bounds,
+            clip_grad=self.z_clip_grad,
             spherical=self.spherical,
             mh=self.z_mh,
-            reject_boundary=self.z_reject_boundary,
+            reject_out_of_boundary=self.z_reject_out_of_boundary,
         )
 
         if replay:
@@ -299,8 +312,8 @@ class WNAE(torch.nn.Module):
         })
 
         sample_x_1 = self.decoder(sample_z).detach()
-        if self.x_bound is not None:
-            sample_x_1.clamp_(self.x_bound[0], self.x_bound[1])
+        if self.bounds is not None:
+            sample_x_1.clamp_(self.bounds[0], self.bounds[1])
 
         # Step 2: LMC on X space
         mcmc_data_x = self.__sample_x(x0=sample_x_1, replay=False)
