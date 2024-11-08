@@ -3,6 +3,22 @@ import torch
 import torch.autograd as autograd
 
 
+def __clip_vector_norm(x, max_norm):
+    """Rescale vector to meet maximum norm, keeping vector direction constant.
+
+    Args:
+        x (torch.Tensor): Vector
+        max_norm (float): Maximum vector norm
+    """
+
+    norm = x.norm(dim=-1, keepdim=True)
+    x = x * (
+        (norm <= max_norm).to(torch.float)
+        + (norm > max_norm).to(torch.float) * (max_norm/norm)
+    )
+    return x
+
+
 def langevin_step(
         x,
         energy_x,
@@ -13,7 +29,7 @@ def langevin_step(
         temperature,
         clip,
         clip_grad,
-        reject_boundary,
+        reject_out_of_boundary,
         spherical,
         mh,
     ):
@@ -30,7 +46,7 @@ def langevin_step(
     # Clip gradient and boundary rejection
     reject = torch.zeros(len(y), dtype=torch.bool)
     if clip is not None:
-        if reject_boundary:
+        if reject_out_of_boundary:
             accept = ((y >= clip[0]) & (y <= clip[1])).view(len(x), -1).all(dim=1)
             reject = ~ accept
             y[reject] = x[reject]
@@ -47,7 +63,7 @@ def langevin_step(
  
     # Clip gradient
     if clip_grad is not None:
-        grad_energy_y = torch.clamp(grad_energy_y, -clip_grad, clip_grad)
+        grad_energy_y = __clip_vector_norm(grad_energy_y, clip_grad)
 
     # Metropolis-Hasting rejection
     if mh:
@@ -80,7 +96,7 @@ def sample_langevin(
         temperature=1.,
         clip=None,
         clip_grad=None,
-        reject_boundary=False,
+        reject_out_of_boundary=False,
         spherical=False,
         mh=False,
     ):
@@ -88,14 +104,15 @@ def sample_langevin(
 
     Args:
         x (torch.Tensor): Initial points from which to start the MCMC.
-        model (any): An energy-based model returning energy.
-        n_steps (integer): Number of MCMC stpe to run.
+        model (any): Energy-based model returning energy.
+        n_steps (integer): Number of MCMC step to run.
         step_size (float or None): If None, set to `noise_scale`**2 / 2.
         noise_scale (float or None): If None, set to np.sqrt(`step_size` * 2).
         clip (tuple or None): If None samples are not clipped, otherwise
             samples are clipped in the provided boundaries.
         clip_grad (float or None): If not None, clip gradient to the given value.
-        reject_boundary (bool): Reject out-of-domain samples if True. Otherwise clip.
+        reject_out_of_boundary (bool): Reject out-of-domain samples if True,
+            otherwise clip.
         spherical (bool): Is True, project onto the hyper-shere of unit radius.
         mh (bool): Use Metropolis-Hastings rejection.
         temperature (float): Divide energy by temperature, can be seen as
@@ -120,7 +137,7 @@ def sample_langevin(
     energy_x = model(x)
     grad_energy_x = autograd.grad(energy_x.sum(), x, create_graph=True)[0]
     if clip_grad is not None:
-        grad_energy_x = torch.clamp(grad_energy_x, -clip_grad, clip_grad)
+        grad_energy_x = __clip_vector_norm(grad_energy_x, clip_grad)
 
     # Run the chain
     sampler_dict["samples"].append(x.detach().cpu())
@@ -136,7 +153,7 @@ def sample_langevin(
             temperature,
             clip,
             clip_grad,
-            reject_boundary,
+            reject_out_of_boundary,
             spherical,
             mh,
         )
