@@ -1,3 +1,4 @@
+import random
 import numpy as np
 import torch
 import torch.nn as nn
@@ -121,9 +122,8 @@ def __get_wnae_model(parameters):
     return model
 
 
-def __run_training(model, loss_function, training_loader, validation_loader):
-
-    n_epochs = 3
+def __run_training(model, loss_function, training_loader, validation_loader,
+                   n_epochs=3):
 
     optimizer = torch.optim.AdamW(
         params=model.parameters(),
@@ -185,29 +185,6 @@ def __run_training(model, loss_function, training_loader, validation_loader):
         validation_loss /= n_batches
 
 
-def test_standalone_methods():
-
-    training_loader, validation_loader = __load_data()
-    wnae_model = __get_wnae_model(WNAE_PARAMETERS_PCD)
-
-    # Check evaluation
-    data = next(iter(training_loader))[0]
-    reco_error = wnae_model.evaluate(data)["reco_errors"]
-
-    assert len(reco_error) == len(data)
-
-    # Check standalone mcmc
-    n_points = 10
-    x = torch.rand(n_points, 1)
-    y = torch.rand(n_points, 1)
-    initial_state = torch.hstack((x, y))
-    mcmc_samples = wnae_model.run_mcmc(x=initial_state, all_steps=True)
-
-    assert mcmc_samples.shape[0] == initial_state.shape[0]
-    assert mcmc_samples.shape[1] == initial_state.shape[1]
-    assert mcmc_samples.shape[2] == WNAE_PARAMETERS_PCD["n_steps"] + 1
-
-
 def test_ae_pcd_training():
     training_loader, validation_loader = __load_data()
     wnae_model = __get_wnae_model(WNAE_PARAMETERS_PCD)
@@ -238,7 +215,64 @@ def test_nae_omi():
     __run_training(wnae_model, "nae", training_loader, validation_loader)
 
 
-def test_nae_omi():
+def test_wnae_omi():
     training_loader, validation_loader = __load_data()
     wnae_model = __get_wnae_model(WNAE_PARAMETERS_OMI)
     __run_training(wnae_model, "wnae", training_loader, validation_loader)
+
+
+def test_standalone_methods():
+
+    training_loader, _ = __load_data()
+    wnae_model = __get_wnae_model(WNAE_PARAMETERS_PCD)
+
+    # Check evaluation
+    data = next(iter(training_loader))[0]
+    reco_error = wnae_model.evaluate(data)["reco_errors"]
+
+    assert len(reco_error) == len(data)
+
+    # Check standalone mcmc
+    n_points = 10
+    x = torch.rand(n_points, 1)
+    y = torch.rand(n_points, 1)
+    initial_state = torch.hstack((x, y))
+    mcmc_samples = wnae_model.run_mcmc(x=initial_state, all_steps=True)
+
+    assert mcmc_samples.shape[0] == initial_state.shape[0]
+    assert mcmc_samples.shape[1] == initial_state.shape[1]
+    assert mcmc_samples.shape[2] == WNAE_PARAMETERS_PCD["n_steps"] + 1
+
+
+def test_standalone_mcmc_no_initial_samples():
+
+    training_loader, validation_loader = __load_data()
+
+    for sampling in ["PCD", "OMI"]:
+        validation_data = next(iter(validation_loader))[0]
+        if sampling == "PCD":
+            wnae_model = __get_wnae_model(WNAE_PARAMETERS_PCD)
+        elif sampling == "OMI":
+            wnae_model = __get_wnae_model(WNAE_PARAMETERS_OMI)
+
+        # Populate the buffer replay
+        __run_training(wnae_model, "wnae", training_loader, validation_loader,
+                       n_epochs=1)
+
+        # Fix seeds for reproducibility
+        np.random.seed(0)
+        random.seed(0)
+        torch.manual_seed(0)
+
+        validation_dict = wnae_model.validation_step(validation_data)
+        mcmc_samples_validation = validation_dict["mcmc_data"]["samples"][-1]
+
+        # Fix seeds for reproducibility
+        np.random.seed(0)
+        random.seed(0)
+        torch.manual_seed(0)
+
+        mcmc_samples = wnae_model.run_mcmc(n_samples=len(validation_data), all_steps=False)
+
+        assert torch.all(mcmc_samples == mcmc_samples_validation)
+

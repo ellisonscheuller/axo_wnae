@@ -640,14 +640,22 @@ class WNAE(torch.nn.Module):
         )
         return evaluation_dict
 
-    def run_mcmc(self, x=None, replay=False, all_steps=False):
+    def run_mcmc(
+            self,
+            x=None,
+            n_samples=None,
+            replay=False,
+            all_steps=False,
+        ):
         """Run MCMC and return MCMC samples.
 
         Args:
             x (torch.Tensor or None, optional, default=None): Initial
                 starting points for the MCMC. If None, the MCMC will be
-                initialized from the replay buffer for PCD and randomly for
-                OMI. Must be not None for CD. 
+                initialized from the replay buffer (with replay ratio) for
+                PCD and randomly for OMI. Must be not None for CD. 
+            n_samples (int or None, optional, default=None): Number of MCMC
+                samples to generate. Only use if `x=None`.
             replay (bool, optional, default=False): Whether or not to add
                 the MCMC samples to the replay buffer to be used as initial
                 points of the next MCMC (only when the MCMC algorithm is PCD).
@@ -666,7 +674,7 @@ class WNAE(torch.nn.Module):
             raise ValueError
 
         if x is None:
-            mcmc_data = self.__sample(replay=replay)
+            mcmc_data = self.__sample(n_sample=n_samples, replay=replay)
         else:
             mcmc_data = self.__sample_x(x0=x, replay=replay)
         
