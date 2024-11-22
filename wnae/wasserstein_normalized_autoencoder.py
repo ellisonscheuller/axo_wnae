@@ -628,7 +628,13 @@ class WNAE(torch.nn.Module):
             x (torch.Tensor): Validation data.
         
         Returns:
-            dict[str, any]
+            dict[str, any]: Returns a dictionary with information about
+            the evaluation:
+                
+                - "reco_errors" (torch.Tensor): the reconstruction errors of the positive examples
+                - "positive_energy" (float): the positive energy
+                - "positive_z" (torch.Tensor): the latent representation of the positive examples
+                - "positive_reco" (torch.Tensor): the reconstructed positive examples
         """
 
         _, _, _, evaluation_dict = self.__wnae_step(
