@@ -399,9 +399,6 @@ Standard NAE training
         run_training(nae_model, "nae", n_epochs, plot_epochs)
 
 
-NAE training
-------------
-
 This illustrates a few points:
 
 * the loss can get negative
